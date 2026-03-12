@@ -1,0 +1,36 @@
+version: '3.9'
+
+services:
+
+  db:
+    build: ./db
+    container_name: users-db
+    networks:
+      - users-network
+    environment:
+      POSTGRES_DB: user_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - users-db-data:/var/lib/postgresql/data
+
+  app:
+    build: ./users/users
+    container_name: users-app
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    networks:
+      - users-network
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/user_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+
+networks:
+  users-network:
+    driver: bridge
+
+volumes:
+  users-db-data:

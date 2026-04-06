@@ -52,7 +52,7 @@ jobs:
           cache: maven
 
       - name: Run checkstyle
-        run: mvn -f "$APP_DIR/pom.xml" -B verify
+        run: mvn -f "$APP_DIR/pom.xml" -B checkstyle:check
 
   test:
     name: test
@@ -69,7 +69,7 @@ jobs:
           cache: maven
 
       - name: Run tests and coverage checks
-        run: mvn -f "$APP_DIR/pom.xml" -B test jacoco:report jacoco:check
+        run: mvn -f "$APP_DIR/pom.xml" -B verify
 
       - name: Extract line coverage
         id: coverage

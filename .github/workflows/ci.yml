@@ -71,27 +71,6 @@ jobs:
       - name: Run tests and coverage checks
         run: mvn -f "$APP_DIR/pom.xml" -B verify
 
-      - name: Extract line coverage
-        id: coverage
-        shell: bash
-        run: |
-          COUNTER=$(grep -oPm1 '<counter type="LINE" missed="\d+" covered="\d+"' "$APP_DIR/target/site/jacoco/jacoco.xml")
-          MISSED=$(echo "$COUNTER" | sed -E 's/.*missed="([0-9]+)".*/\1/')
-          COVERED=$(echo "$COUNTER" | sed -E 's/.*covered="([0-9]+)".*/\1/')
-          TOTAL=$((MISSED + COVERED))
-          if [ "$TOTAL" -eq 0 ]; then
-            PERCENT="0.00"
-          else
-            PERCENT=$(awk -v c="$COVERED" -v t="$TOTAL" 'BEGIN { printf "%.2f", (c/t)*100 }')
-          fi
-          echo "percent=$PERCENT" >> "$GITHUB_OUTPUT"
-          echo "Line coverage: $PERCENT%"
-
-      - name: Enforce coverage threshold
-        shell: bash
-        run: |
-          awk -v p="${{ steps.coverage.outputs.percent }}" 'BEGIN { if (p + 0 < 50) { print "Coverage below 50%"; exit 1 } }'
-
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4
         with:

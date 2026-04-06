@@ -52,7 +52,7 @@ jobs:
           cache: maven
 
       - name: Run checkstyle
-        run: mvn -f "$APP_DIR/pom.xml" -B checkstyle:check
+        run: mvn -f "$APP_DIR/pom.xml" -B verify
 
   test:
     name: test

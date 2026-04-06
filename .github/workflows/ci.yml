@@ -1,0 +1,145 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches:
+      - "**"
+  push:
+    branches:
+      - "**"
+
+env:
+  APP_DIR: users
+  IMAGE_TAG: ${{ secrets.DOCKERHUB_REPOSITORY }}:${{ github.ref_name }}-${{ github.sha }}
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build app
+        run: mvn -f "$APP_DIR/pom.xml" -B -DskipTests clean package
+
+      - name: Upload jar artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: ${{ env.APP_DIR }}/target/*.jar
+          if-no-files-found: error
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Run checkstyle
+        run: mvn -f "$APP_DIR/pom.xml" -B checkstyle:check
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Run tests and coverage checks
+        run: mvn -f "$APP_DIR/pom.xml" -B test jacoco:report jacoco:check
+
+      - name: Extract line coverage
+        id: coverage
+        shell: bash
+        run: |
+          COUNTER=$(grep -oPm1 '<counter type="LINE" missed="\d+" covered="\d+"' "$APP_DIR/target/site/jacoco/jacoco.xml")
+          MISSED=$(echo "$COUNTER" | sed -E 's/.*missed="([0-9]+)".*/\1/')
+          COVERED=$(echo "$COUNTER" | sed -E 's/.*covered="([0-9]+)".*/\1/')
+          TOTAL=$((MISSED + COVERED))
+          if [ "$TOTAL" -eq 0 ]; then
+            PERCENT="0.00"
+          else
+            PERCENT=$(awk -v c="$COVERED" -v t="$TOTAL" 'BEGIN { printf "%.2f", (c/t)*100 }')
+          fi
+          echo "percent=$PERCENT" >> "$GITHUB_OUTPUT"
+          echo "Line coverage: $PERCENT%"
+
+      - name: Enforce coverage threshold
+        shell: bash
+        run: |
+          awk -v p="${{ steps.coverage.outputs.percent }}" 'BEGIN { if (p + 0 < 50) { print "Coverage below 50%"; exit 1 } }'
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            ${{ env.APP_DIR }}/target/site/jacoco/
+            ${{ env.APP_DIR }}/target/surefire-reports/
+          if-no-files-found: error
+
+  docker_build:
+    name: docker_build
+    needs: [build, lint, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t "$IMAGE_TAG" -f "$APP_DIR/Dockerfile" "$APP_DIR"
+
+      - name: Save Docker image artifact
+        run: docker save "$IMAGE_TAG" -o image.tar
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: image.tar
+          if-no-files-found: error
+
+  docker_push:
+    name: docker_push
+    needs: [docker_build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Load and push Docker image
+        run: |
+          docker load -i image.tar
+          docker push "$IMAGE_TAG"
